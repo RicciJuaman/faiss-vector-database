@@ -54,4 +54,7 @@ By building this manually, you gain hands-on mastery of the same components used
 This is practical AI infrastructure engineering.
 
 ---
+## 🙌 Author
 
+Ricci — Data Scientist & AI Engineer in training  
+Building real AI infrastructure from the ground up.
