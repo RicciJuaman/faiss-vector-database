@@ -16,7 +16,7 @@ You can implement these stages sequentially or modularly depending on your syste
 
 ---
 
-## 1️⃣ Basic Embeddings + FAISS Index
+## 1️ Basic Embeddings + FAISS Index
 
 ### **Objective**
 Establish fast semantic search using vector similarity.
@@ -36,7 +36,7 @@ Establish fast semantic search using vector similarity.
 
 ---
 
-## 2️⃣ Hybrid Search (Vector + BM25)
+## 2️ Hybrid Search (Vector + BM25)
 
 ### **Objective**
 Combine semantic meaning with keyword precision.
@@ -55,7 +55,7 @@ hybrid_score = α * vector_score + (1 − α) * keyword_score
 
 ---
 
-## 3️⃣ Reranking Layer (Cross-Encoder)
+## 3️ Reranking Layer (Cross-Encoder)
 
 ### **Objective**
 Significantly improve final ranking quality.
@@ -75,7 +75,7 @@ Significantly improve final ranking quality.
 
 ---
 
-## 4️⃣ Query Optimization Layer
+## 4️ Query Optimization Layer
 
 ### **Objective**
 Rewrite or expand queries to improve understanding and intent detection.
@@ -96,7 +96,7 @@ Rewrite or expand queries to improve understanding and intent detection.
 
 ---
 
-## 5️⃣ Document Chunk Optimization
+## 5️ Document Chunk Optimization
 
 ### **Objective**
 Ensure content is embedded cleanly and meaningfully.
@@ -115,7 +115,7 @@ document → section → paragraph → chunk
 
 ---
 
-## 6️⃣ Index Optimization & Compression
+## 6️ Index Optimization & Compression
 
 ### **Objective**
 Improve scalability, reduce memory usage, and increase throughput.
@@ -135,7 +135,7 @@ Improve scalability, reduce memory usage, and increase throughput.
 
 ---
 
-## 7️⃣ Personalization & Learning-to-Rank (LTR)
+## 7️ Personalization & Learning-to-Rank (LTR)
 
 ### **Objective**
 Make search results adaptive to user preferences and behavior.
@@ -159,7 +159,7 @@ Make search results adaptive to user preferences and behavior.
 
 ---
 
-## 8️⃣ LLM-Enhanced Retrieval (RAG Optimization)
+## 8️ LLM-Enhanced Retrieval (RAG Optimization)
 
 ### **Objective**
 Turn search into an intelligent answer engine.
@@ -181,21 +181,21 @@ Turn search into an intelligent answer engine.
 
 ---
 
-# 🏆 Final Architecture Capabilities
+# Final Architecture Capabilities
 
 After completing all steps, the system becomes:
 
-- ⚡ Ultra-fast  
-- 🔍 Semantic  
-- 🎯 Accurate  
-- 🤖 LLM-powered  
-- 📈 Scalable  
-- 🧠 Personalized  
+- Ultra-fast  
+- Semantic  
+- Accurate  
+- LLM-powered  
+- Scalable  
+- Personalized  
 
 On par with search systems used by industry leaders like Notion, Stripe, Spotify, and Databricks.
 ---
 
-# 📜 License
+# License
 
 This roadmap is open for personal and commercial use.  
 Modify, extend, or adapt it freely to suit your architecture.
