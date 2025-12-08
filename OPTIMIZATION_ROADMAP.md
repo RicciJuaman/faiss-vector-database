@@ -1,9 +1,9 @@
-# 🧠 Search Engine Optimization Roadmap  
+# Search Engine Optimization Roadmap  
 *A structured guide to building a world-class semantic search engine from scratch.*
 
 ---
 
-## 🚀 Overview
+## Overview
 
 This document outlines the complete step-by-step optimization path for developing a high-performance search engine.  
 Each stage progressively improves speed, accuracy, ranking quality, scalability, and intelligence.
@@ -12,7 +12,7 @@ You can implement these stages sequentially or modularly depending on your syste
 
 ---
 
-# 📌 Optimization Stages
+# Optimization Stages
 
 ---
 
