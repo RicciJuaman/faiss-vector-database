@@ -33,7 +33,7 @@ class HybridSearch:
     #  SEMANTIC SEARCH
     # -------------------------
     def semantic_search(self, query, k=20):
-        vec = self.embedder.embed([query])
+        vec = self.embedder.embed_batch([query])
         distances, indices = self.index.search(vec, k)
         return list(zip(distances[0], indices[0]))
 
@@ -50,6 +50,7 @@ class HybridSearch:
     #  HYBRID COMBINATION
     # -------------------------
     def search(self, query, k=10, alpha=0.7):
+        print("Semantic raw:", self.semantic_search(query, k=5))
         bm25_docs = self.bm25_search(query, k=20)
         sem_docs = self.semantic_search(query, k=20)
 
