@@ -1,5 +1,4 @@
 import os
-import json
 import psycopg2
 from psycopg2.extras import RealDictCursor
 import numpy as np
@@ -18,7 +17,6 @@ SAVE_INTERVAL = 5000
 BASE_DIR = os.path.dirname(os.path.abspath(__file__))
 INDEX_DIR = os.path.abspath(os.path.join(BASE_DIR, "..", "index"))
 INDEX_PATH = os.path.join(INDEX_DIR, "reviews.index")
-ID_MAP_PATH = os.path.join(INDEX_DIR, "id_map.json")
 
 os.makedirs(INDEX_DIR, exist_ok=True)
 
@@ -45,12 +43,23 @@ def embed_batch(text_list):
 # LOAD OR CREATE INDEX
 # ----------------------
 def load_or_init_index(dim):
+    """Loads an existing FAISS index, or creates a new IndexIDMap index."""
     if os.path.exists(INDEX_PATH):
         print("[✔] Loaded existing FAISS index")
-        return faiss.read_index(INDEX_PATH)
+        index = faiss.read_index(INDEX_PATH)
+
+        # If index is NOT an IndexIDMap, wrap it
+        if not isinstance(index, faiss.IndexIDMap):
+            print("[+] Wrapping existing index inside IndexIDMap")
+            index = faiss.IndexIDMap(index)
+
+        return index
+
     else:
-        print("[+] Creating new FAISS index")
-        return faiss.IndexFlatL2(dim)
+        print("[+] Creating new FAISS IndexIDMap index")
+        base = faiss.IndexFlatL2(dim)
+        index = faiss.IndexIDMap(base)
+        return index
 
 # ----------------------
 # MAIN INGEST
@@ -67,9 +76,7 @@ def embed_all():
 
     index = load_or_init_index(dim)
 
-    id_map = []  # <--- vector index → DB ID mapping
-
-    processed = index.ntotal
+    processed = index.ntotal  # continue from previous state if exists
     print(f"Starting from vector position {processed}")
 
     while True:
@@ -84,32 +91,49 @@ def embed_all():
         if not rows:
             break
 
+        # Prepare text for embedding
         texts = [row["Text"] if row["Text"] else "" for row in rows]
         vectors = embed_batch(texts)
 
-        index.add(vectors)
+        # Prepare IDs for FAISS
+        ids = np.array([row["Id"] for row in rows], dtype="int64")
 
-        # Store DB IDs in exact vector order
-        for row in rows:
-            id_map.append(int(row["Id"]))
+        # Add vectors WITH IDs
+        index.add_with_ids(vectors, ids)
 
         processed += len(rows)
 
+        # Checkpoint save
         if processed % SAVE_INTERVAL < BATCH_SIZE:
             faiss.write_index(index, INDEX_PATH)
-            with open(ID_MAP_PATH, "w") as f:
-                json.dump(id_map, f)
             print(f"[✔] Checkpoint saved at {processed}")
 
         print(f"[+] Embedded + indexed: {processed}/{total_rows}")
 
     # Final save
     faiss.write_index(index, INDEX_PATH)
-    with open(ID_MAP_PATH, "w") as f:
-        json.dump(id_map, f)
 
     print("[✔] FINAL SAVE COMPLETE")
-    print("[✔] Indexing & ID map generation COMPLETE")
+    print("[✔] Indexing COMPLETE — FAISS now contains DB IDs internally.")
 
+# ----------------------
+# MAIN ENTRY
+# ----------------------
 if __name__ == "__main__":
     embed_all()
+
+
+# ----------------------
+# FAISS Index Loader Class
+# ----------------------
+class FaissIndex:
+    @staticmethod
+    def load(path):
+        if not os.path.exists(path):
+            raise FileNotFoundError(f"FAISS index not found at: {path}")
+        return faiss.read_index(path)
+
+    @staticmethod
+    def save(index, path):
+        os.makedirs(os.path.dirname(path), exist_ok=True)
+        faiss.write_index(index, path)

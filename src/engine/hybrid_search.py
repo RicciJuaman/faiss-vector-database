@@ -1,32 +1,28 @@
-import os
-import json
 import numpy as np
 from psycopg2.extras import RealDictCursor
 
-from engine.embedder import Embedder
-from engine.indexer import FaissIndex
 
 class HybridSearch:
-    def __init__(self, index_path, conn):
-        self.embedder = Embedder()
-        self.index = FaissIndex.load(index_path)
+    def __init__(self, index, conn, embedder):
+        """
+        index     → FAISS IndexIDMap (returns real DB IDs)
+        conn      → PostgreSQL connection
+        embedder  → Your embedding model wrapper
+        """
+        self.index = index
         self.conn = conn
+        self.embedder = embedder
 
-        # Load vector index → DB ID mapping
-        map_path = os.path.join(os.path.dirname(index_path), "id_map.json")
-        with open(map_path, "r") as f:
-            self.id_map = json.load(f)
+        print("[✔] HybridSearch initialized with FAISS IndexIDMap")
 
-        print(f"[✔] Loaded ID map ({len(self.id_map)} entries)")
-
-    # -------------------------
-    #  BM25 SEARCH
-    # -------------------------
+    # ---------------------------------------------
+    # BM25 SEARCH (PostgreSQL)
+    # ---------------------------------------------
     def bm25_search(self, query, k=20):
         with self.conn.cursor(cursor_factory=RealDictCursor) as cur:
             cur.execute("""
                 SELECT "Id",
-                       ts_rank(
+                       ts_rank_cd(
                          to_tsvector('english', "Text"),
                          plainto_tsquery('english', %s)
                        ) AS bm25
@@ -35,60 +31,74 @@ class HybridSearch:
                 ORDER BY bm25 DESC
                 LIMIT %s;
             """, (query, query, k))
+
             return cur.fetchall()
 
-    # -------------------------
-    #  SEMANTIC SEARCH (FAISS)
-    # -------------------------
+    # ---------------------------------------------
+    # SEMANTIC SEARCH (FAISS)
+    # ---------------------------------------------
     def semantic_search(self, query, k=20):
-        vec = self.embedder.embed_batch([query])[0]
-        distances, vector_ids = self.index.search(vec, k)
+        # embed returns [[vector]]
+        vec = self.embedder.embed_batch([query])
+
+        distances, ids = self.index.search(vec, k)
 
         results = []
-        for dist, vid in zip(distances[0], vector_ids[0]):
-            db_id = self.id_map[vid]  # <-- FIX: correct ID
-            semantic_score = 1 - float(dist)
-            results.append((db_id, semantic_score))
+        for dist, db_id in zip(distances[0], ids[0]):
+            if db_id == -1:
+                continue  # FAISS returns -1 for empty slots sometimes
+
+            semantic_score = 1 - float(dist)  # Convert L2 distance → similarity
+            results.append((int(db_id), semantic_score))
 
         return results
 
-    # -------------------------
-    #  NORMALIZATION
-    # -------------------------
-    def normalize(self, scores):
-        arr = np.array(scores)
+    # ---------------------------------------------
+    # NORMALIZATION
+    # ---------------------------------------------
+    def normalize(self, arr):
+        arr = np.array(arr, dtype=float)
         if arr.max() == arr.min():
-            return np.ones_like(arr)
+            return np.ones_like(arr, dtype=float)
         return (arr - arr.min()) / (arr.max() - arr.min())
 
-    # -------------------------
-    #  HYBRID SEARCH
-    # -------------------------
+    # ---------------------------------------------
+    # HYBRID SEARCH
+    # ---------------------------------------------
     def search(self, query, k=10, alpha=0.7):
+        """
+        alpha = weight for semantic search
+        (1 - alpha) = weight for BM25
+        """
 
-        bm25_docs = self.bm25_search(query, k=50)
+        # Retrieve results
+        bm25_docs = self.bm25_search(query, k=500)
         sem_docs = self.semantic_search(query, k=50)
 
-        # Convert semantic results to a map
-        sem_map = {db_id: score for (db_id, score) in sem_docs}
+        # Convert lists → fast lookup maps
+        bm25_map = {int(row["Id"]): float(row["bm25"]) for row in bm25_docs}
+        sem_map = {doc_id: score for (doc_id, score) in sem_docs}
 
-        # Merge BM25 + Semantic results
-        all_ids = set(sem_map.keys()) | {int(row["Id"]) for row in bm25_docs}
+        # Union of all doc IDs
+        all_ids = set(bm25_map.keys()) | set(sem_map.keys())
 
         combined = []
         for doc_id in all_ids:
-            bm25 = next((row["bm25"] for row in bm25_docs if row["Id"] == doc_id), 0.0)
+            bm25 = bm25_map.get(doc_id, 0.0)
             semantic = sem_map.get(doc_id, 0.0)
             combined.append({"id": doc_id, "bm25": bm25, "semantic": semantic})
+        print("\nRAW BM25 scores:", [c["bm25"] for c in combined])
+        print("RAW Semantic scores:", [c["semantic"] for c in combined])
 
-        # Normalize
+        # Normalize both score sets
         bm25_norm = self.normalize([c["bm25"] for c in combined])
-        sem_norm = self.normalize([c["semantic"] for c in combined])
+        sem_norm  = self.normalize([c["semantic"] for c in combined])
 
-        # Hybrid score
+        # Apply weights + hybrid scoring
         for i, c in enumerate(combined):
             c["hybrid"] = alpha * sem_norm[i] + (1 - alpha) * bm25_norm[i]
 
-        # Sort by hybrid score
+        # Sort results
         combined.sort(key=lambda x: x["hybrid"], reverse=True)
+
         return combined[:k]

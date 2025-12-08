@@ -35,7 +35,19 @@ print("[✔] Connected to PostgreSQL")
 # ==========================================================
 #              INITIALIZE HYBRID SEARCH
 # ==========================================================
-hybrid = HybridSearch(INDEX_PATH, PG_CONN)
+from engine.indexer import FaissIndex
+from engine.embedder import Embedder
+from engine.hybrid_search import HybridSearch
+
+# Load FAISS index
+faiss_index = FaissIndex.load(INDEX_PATH)
+
+# Create embedder
+embedder = Embedder()
+
+# Create hybrid engine
+hybrid = HybridSearch(faiss_index, PG_CONN, embedder)
+
 
 # ==========================================================
 #              DISPLAY HYBRID RESULTS
