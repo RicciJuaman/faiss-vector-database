@@ -33,9 +33,9 @@ class HybridSearch:
     #  SEMANTIC SEARCH
     # -------------------------
     def semantic_search(self, query, k=20):
-        vec = self.embedder.embed_batch([query])
-        distances, indices = self.index.search(vec, k)
-        return list(zip(distances[0], indices[0]))
+        vec = self.embedder.embed_batch([query])[0]
+        distances, ids = self.index.search(vec, k)
+        return list(zip(distances[0], ids[0]))
 
     # -------------------------
     #  NORMALIZATION
@@ -54,8 +54,8 @@ class HybridSearch:
         bm25_docs = self.bm25_search(query, k=20)
         sem_docs = self.semantic_search(query, k=20)
 
-        # Map ID → semantic_score
-        sem_map = {int(i): (1 - d) for d, i in sem_docs}
+        # Map document ID → semantic_score
+        sem_map = {int(doc_id): (1 - distance) for distance, doc_id in sem_docs}
 
         # Build combined list
         combined = []
