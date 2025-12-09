@@ -38,7 +38,6 @@ class HybridSearch:
     # SEMANTIC SEARCH (FAISS)
     # ---------------------------------------------
     def semantic_search(self, query, k=20):
-        # embed returns [[vector]]
         vec = self.embedder.embed_batch([query])
 
         distances, ids = self.index.search(vec, k)
@@ -46,9 +45,9 @@ class HybridSearch:
         results = []
         for dist, db_id in zip(distances[0], ids[0]):
             if db_id == -1:
-                continue  # FAISS returns -1 for empty slots sometimes
+                continue
 
-            semantic_score = 1 - float(dist)  # Convert L2 distance → similarity
+            semantic_score = 1 - float(dist)
             results.append((int(db_id), semantic_score))
 
         return results
