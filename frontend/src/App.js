@@ -1,5 +1,38 @@
+<<<<<<< HEAD
 import { useState } from 'react';
 import './App.css';
+=======
+import { useState } from "react";
+import "./App.css";
+
+const API_BASE_URL =
+  process.env.REACT_APP_API_BASE_URL || "http://localhost:8000";
+
+function normalizeResults(rawResults) {
+  const list = Array.isArray(rawResults)
+    ? rawResults
+    : rawResults?.results || [];
+
+  return list.slice(0, 5).map((item, index) => ({
+    id: item.id ?? `result-${index + 1}`,
+    hybrid: item.hybrid ?? null,
+    semantic: item.semantic ?? null,
+    bm25: item.bm25 ?? null,
+    text:
+      item.text ||
+      item.content ||
+      item.review_text ||
+      "No content available.",
+  }));
+}
+
+function formatScore(score) {
+  if (score === null || score === undefined || Number.isNaN(score)) {
+    return "–";
+  }
+  return Number(score).toFixed(4);
+}
+>>>>>>> dev_c
 
 const API_BASE_URL = process.env.REACT_APP_API_BASE_URL || 'http://localhost:8000';
 
@@ -45,6 +78,7 @@ function formatScore(score) {
 }
 
 function App() {
+<<<<<<< HEAD
   const [query, setQuery] = useState('');
   const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(false);
@@ -55,27 +89,57 @@ function App() {
     const trimmed = query.trim();
     if (!trimmed) {
       setError('Enter a query to search.');
+=======
+  const [query, setQuery] = useState("");
+  const [results, setResults] = useState([]);
+  const [loading, setLoading] = useState(false);
+  const [error, setError] = useState("");
+
+  const handleSearch = async (e) => {
+    e.preventDefault();
+    const trimmed = query.trim();
+
+    if (!trimmed) {
+      setError("Enter a query to search.");
+>>>>>>> dev_c
       return;
     }
 
     setLoading(true);
+<<<<<<< HEAD
     setError('');
 
     try {
       const response = await fetch(`${API_BASE_URL}/search/hybrid`, {
         method: 'POST',
         headers: { 'Content-Type': 'application/json' },
+=======
+    setError("");
+
+    try {
+      const response = await fetch(`${API_BASE_URL}/search/hybrid`, {
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
+>>>>>>> dev_c
         body: JSON.stringify({ query: trimmed, k: 5 }),
       });
 
       if (!response.ok) {
+<<<<<<< HEAD
         throw new Error(`Search request failed with status ${response.status}`);
+=======
+        throw new Error(`Request failed (${response.status})`);
+>>>>>>> dev_c
       }
 
       const data = await response.json();
       setResults(normalizeResults(data));
     } catch (err) {
+<<<<<<< HEAD
       setError(err.message || 'Unable to complete search.');
+=======
+      setError(err.message || "Search failed.");
+>>>>>>> dev_c
       setResults([]);
     } finally {
       setLoading(false);
@@ -85,16 +149,24 @@ function App() {
   return (
     <div className="app-shell">
       <header className="hero">
+<<<<<<< HEAD
         <p className="eyebrow">Hybrid Search Engine</p>
         <h1>Find the best matches with BM25 + semantic scores</h1>
         <p className="lede">
           Run a hybrid query and review the top 5 results with both lexical and semantic relevance metrics.
+=======
+        <p className="eyebrow">Hybrid Search Engine by Ricci J.</p>
+        <h1>Semantic + BM25 Hybrid Search</h1>
+        <p className="lede">
+          Combining lexical relevance and vector similarity for better ranking.
+>>>>>>> dev_c
         </p>
       </header>
 
       <main className="content">
         <section className="search-panel">
           <form className="search-form" onSubmit={handleSearch}>
+<<<<<<< HEAD
             <label className="visually-hidden" htmlFor="query-input">
               Search query
             </label>
@@ -102,18 +174,28 @@ function App() {
               id="query-input"
               type="text"
               placeholder="Search for reviews, products, or topics..."
+=======
+            <input
+              type="text"
+              placeholder="Search…"
+>>>>>>> dev_c
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               disabled={loading}
             />
             <button type="submit" disabled={loading}>
+<<<<<<< HEAD
               {loading ? 'Searching…' : 'Search'}
+=======
+              {loading ? "Searching…" : "Search"}
+>>>>>>> dev_c
             </button>
           </form>
           {error && <p className="error">{error}</p>}
         </section>
 
         <section className="results-panel">
+<<<<<<< HEAD
           <div className="results-header">
             <div>
               <p className="eyebrow">Top results</p>
@@ -159,6 +241,42 @@ function App() {
                   </div>
                 </div>
                 <p className="result-text">{result.text}</p>
+=======
+          {results.length === 0 && !loading && !error && (
+            <p className="empty-state">
+              Submit a query to see ranked results.
+            </p>
+          )}
+
+          <ol className="results-list">
+            {results.map((r, i) => (
+              <li key={r.id} className="result-card">
+                <div className="result-meta">
+                  <span className="rank">#{i + 1}</span>
+                  <div className="scores">
+                    <div>
+                      <p className="score-label">Hybrid</p>
+                      <p className="score-value">
+                        {formatScore(r.hybrid)}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="score-label">Semantic</p>
+                      <p className="score-value">
+                        {formatScore(r.semantic)}
+                      </p>
+                    </div>
+                    <div>
+                      <p className="score-label">BM25</p>
+                      <p className="score-value">
+                        {formatScore(r.bm25)}
+                      </p>
+                    </div>
+                  </div>
+                </div>
+
+                <p className="result-text">{r.text}</p>
+>>>>>>> dev_c
               </li>
             ))}
           </ol>

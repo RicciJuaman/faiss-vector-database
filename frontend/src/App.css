@@ -167,6 +167,7 @@ body {
   gap: 12px;
 }
 
+<<<<<<< HEAD
 .rank-name {
   display: flex;
   gap: 10px;
@@ -195,6 +196,8 @@ body {
   font-size: 13px;
 }
 
+=======
+>>>>>>> dev_c
 .rank {
   background: rgba(96, 165, 250, 0.15);
   color: var(--accent-2);
