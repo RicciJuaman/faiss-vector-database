@@ -73,7 +73,7 @@ function App() {
   return (
     <div className="app-shell">
       <header className="hero">
-        <p className="eyebrow">Hybrid Search Engine</p>
+        <p className="eyebrow">Hybrid Search Engine by Ricci</p>
         <h1>Find the best matches with BM25 + semantic scores</h1>
         <p className="lede">
           Run a hybrid query and review the top 5 results with both lexical and semantic relevance metrics.
