@@ -1,12 +1,19 @@
-import os
-import psycopg2
-from psycopg2.extras import RealDictCursor
-import numpy as np
-import faiss
-import requests
-from dotenv import load_dotenv
+"""Index creation pipeline for FAISS."""
+from __future__ import annotations
 
-load_dotenv()
+import os
+from argparse import ArgumentParser, Namespace
+from pathlib import Path
+from typing import Iterable
+
+import faiss
+import numpy as np
+import psycopg2
+from dotenv import load_dotenv
+from psycopg2.extensions import connection
+from psycopg2.extras import RealDictCursor
+
+from engine.embedder import Embedder
 
 # ----------------------
 # CONFIG
@@ -14,39 +21,47 @@ load_dotenv()
 BATCH_SIZE = 200
 SAVE_INTERVAL = 5000
 
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-INDEX_DIR = os.path.abspath(os.path.join(BASE_DIR, "..", "index"))
-INDEX_PATH = os.path.join(INDEX_DIR, "reviews.index")
+BASE_DIR = Path(__file__).resolve().parent
+INDEX_DIR = BASE_DIR.parent / "index"
+INDEX_PATH = INDEX_DIR / "reviews.index"
 
-os.makedirs(INDEX_DIR, exist_ok=True)
 
-PG_CONN = psycopg2.connect(
-    dbname=os.environ["PG_NAME"],
-    user=os.environ["PG_USER"],
-    password=os.environ["PG_PASSWORD"],
-    host=os.environ["PG_HOST"],
-    port=os.environ.get("PG_PORT", 5432)
-)
-cursor = PG_CONN.cursor(cursor_factory=RealDictCursor)
+# ----------------------
+# ENV + DB
+# ----------------------
+def load_env() -> None:
+    load_dotenv()
+    required = ["PG_NAME", "PG_USER", "PG_PASSWORD", "PG_HOST"]
+    missing = [key for key in required if key not in os.environ]
+    if missing:
+        raise EnvironmentError(f"Missing required environment variables: {', '.join(missing)}")
+
+
+def create_pg_connection() -> connection:
+    return psycopg2.connect(
+        dbname=os.environ["PG_NAME"],
+        user=os.environ["PG_USER"],
+        password=os.environ["PG_PASSWORD"],
+        host=os.environ["PG_HOST"],
+        port=os.environ.get("PG_PORT", 5432),
+    )
+
 
 # ----------------------
 # EMBEDDING
 # ----------------------
-def embed_batch(text_list):
-    response = requests.post(
-        "http://localhost:11434/api/embed",
-        json={"model": "bge-large", "input": text_list}
-    )
-    return np.array(response.json()["embeddings"], dtype="float32")
+def embed_batch(embedder: Embedder, text_list: Iterable[str]) -> np.ndarray:
+    return embedder.embed_batch(text_list)
+
 
 # ----------------------
 # LOAD OR CREATE INDEX
 # ----------------------
-def load_or_init_index(dim):
-    """Loads an existing FAISS index, or creates a new IndexIDMap index."""
-    if os.path.exists(INDEX_PATH):
+def load_or_init_index(dim: int, index_path: Path) -> faiss.IndexIDMap:
+    """Load an existing FAISS index or create a new IndexIDMap."""
+    if index_path.exists():
         print("[✔] Loaded existing FAISS index")
-        index = faiss.read_index(INDEX_PATH)
+        index = faiss.read_index(str(index_path))
 
         # If index is NOT an IndexIDMap, wrap it
         if not isinstance(index, faiss.IndexIDMap):
@@ -55,72 +70,82 @@ def load_or_init_index(dim):
 
         return index
 
-    else:
-        print("[+] Creating new FAISS IndexIDMap index")
-        base = faiss.IndexFlatL2(dim)
-        index = faiss.IndexIDMap(base)
-        return index
+    print("[+] Creating new FAISS IndexIDMap index")
+    base = faiss.IndexFlatL2(dim)
+    return faiss.IndexIDMap(base)
+
 
 # ----------------------
 # MAIN INGEST
 # ----------------------
-def embed_all():
+def embed_all(conn: connection, embedder: Embedder, batch_size: int = BATCH_SIZE) -> None:
     print("[…] Counting rows...")
-    cursor.execute("SELECT COUNT(*) FROM reviews;")
-    total_rows = cursor.fetchone()["count"]
+    with conn.cursor(cursor_factory=RealDictCursor) as cursor:
+        cursor.execute("SELECT COUNT(*) FROM reviews;")
+        total_rows = cursor.fetchone()["count"]
     print(f"Total rows: {total_rows}")
 
     print("[…] Testing embedding dimension…")
-    test_vec = embed_batch(["test"])[0]
+    test_vec = embed_batch(embedder, ["test"])[0]
     dim = len(test_vec)
 
-    index = load_or_init_index(dim)
+    INDEX_DIR.mkdir(parents=True, exist_ok=True)
+    index = load_or_init_index(dim, INDEX_PATH)
 
     processed = index.ntotal  # continue from previous state if exists
     print(f"Starting from vector position {processed}")
 
     while True:
-        cursor.execute("""
-            SELECT "Id", "Text"
-            FROM reviews
-            ORDER BY "Id"
-            OFFSET %s LIMIT %s;
-        """, (processed, BATCH_SIZE))
+        with conn.cursor(cursor_factory=RealDictCursor) as cursor:
+            cursor.execute(
+                """
+                SELECT "Id", "Text"
+                FROM reviews
+                ORDER BY "Id"
+                OFFSET %s LIMIT %s;
+                """,
+                (processed, batch_size),
+            )
+            rows = cursor.fetchall()
 
-        rows = cursor.fetchall()
         if not rows:
             break
 
-        # Prepare text for embedding
         texts = [row["Text"] if row["Text"] else "" for row in rows]
-        vectors = embed_batch(texts)
+        vectors = embed_batch(embedder, texts)
 
-        # Prepare IDs for FAISS
         ids = np.array([row["Id"] for row in rows], dtype="int64")
-
-        # Add vectors WITH IDs
         index.add_with_ids(vectors, ids)
 
         processed += len(rows)
 
-        # Checkpoint save
-        if processed % SAVE_INTERVAL < BATCH_SIZE:
-            faiss.write_index(index, INDEX_PATH)
+        if processed % SAVE_INTERVAL < batch_size:
+            FaissIndex.save(index, INDEX_PATH)
             print(f"[✔] Checkpoint saved at {processed}")
 
         print(f"[+] Embedded + indexed: {processed}/{total_rows}")
 
-    # Final save
-    faiss.write_index(index, INDEX_PATH)
+    FaissIndex.save(index, INDEX_PATH)
 
     print("[✔] FINAL SAVE COMPLETE")
     print("[✔] Indexing COMPLETE — FAISS now contains DB IDs internally.")
 
+
 # ----------------------
-# MAIN ENTRY
+# CLI
 # ----------------------
+def parse_args() -> Namespace:
+    parser = ArgumentParser(description="Embed and index review data into FAISS.")
+    parser.add_argument("--batch-size", type=int, default=BATCH_SIZE, help="Number of rows to embed per batch")
+    return parser.parse_args()
+
+
 if __name__ == "__main__":
-    embed_all()
+    args = parse_args()
+    load_env()
+    embedder = Embedder()
+    with create_pg_connection() as conn:
+        embed_all(conn, embedder, batch_size=args.batch_size)
 
 
 # ----------------------
@@ -128,12 +153,12 @@ if __name__ == "__main__":
 # ----------------------
 class FaissIndex:
     @staticmethod
-    def load(path):
-        if not os.path.exists(path):
+    def load(path: Path) -> faiss.Index:
+        if not path.exists():
             raise FileNotFoundError(f"FAISS index not found at: {path}")
-        return faiss.read_index(path)
+        return faiss.read_index(str(path))
 
     @staticmethod
-    def save(index, path):
-        os.makedirs(os.path.dirname(path), exist_ok=True)
-        faiss.write_index(index, path)
+    def save(index: faiss.Index, path: Path) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        faiss.write_index(index, str(path))
