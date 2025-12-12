@@ -14,10 +14,13 @@ function normalizeResults(rawResults) {
     hybrid: item.hybrid ?? null,
     semantic: item.semantic ?? null,
     bm25: item.bm25 ?? null,
-    text:
+    profileName: item.profile_name || item.profileName || "Unknown reviewer",
+    summary: item.summary || item.Summary || "No summary provided.",
+    reviewText:
+      item.review_text ||
+      item.reviewText ||
       item.text ||
       item.content ||
-      item.review_text ||
       "No content available.",
   }));
 }
@@ -106,7 +109,15 @@ function App() {
             {results.map((r, i) => (
               <li key={r.id} className="result-card">
                 <div className="result-meta">
-                  <span className="rank">#{i + 1}</span>
+                  <div className="identity">
+                    <span className="rank">#{i + 1}</span>
+                    <div className="identity-text">
+                      <p className="meta-label">ID</p>
+                      <p className="meta-value">{r.id}</p>
+                      <p className="meta-label">Profile</p>
+                      <p className="meta-value">{r.profileName}</p>
+                    </div>
+                  </div>
                   <div className="scores">
                     <div>
                       <p className="score-label">Hybrid</p>
@@ -128,8 +139,8 @@ function App() {
                     </div>
                   </div>
                 </div>
-
-                <p className="result-text">{r.text}</p>
+                <p className="result-summary">{r.summary}</p>
+                <p className="result-text">{r.reviewText}</p>
               </li>
             ))}
           </ol>

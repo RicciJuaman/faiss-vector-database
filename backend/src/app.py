@@ -76,6 +76,9 @@ def search(req: SearchRequest):
             "hybrid": float(r["hybrid"]),
             "semantic": float(r["semantic"]),
             "bm25": float(r["bm25"]),
+            "profile_name": r.get("profile_name"),
+            "summary": r.get("summary"),
+            "review_text": r.get("review_text"),
         })
 
     return {"results": clean}
