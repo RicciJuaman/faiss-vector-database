@@ -1,58 +1,17 @@
-import os
-import psycopg2
-from psycopg2.extras import RealDictCursor
-from dotenv import load_dotenv
+"""CLI wrapper around the hybrid search engine."""
+from __future__ import annotations
 
-# === Load helper modules ===
-from engine.hybrid_search import HybridSearch
-from engine.embedder import Embedder
-from engine.indexer import FaissIndex
+from typing import Iterable
 
-import numpy as np
+from psycopg2.extensions import connection
 
-# ==========================================================
-#      PATH RESOLUTION FOR INDEX LOCATION
-# ==========================================================
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-INDEX_PATH = os.path.abspath(os.path.join(BASE_DIR, "..", "index", "reviews.index"))
-print(f"[✔] Resolved FAISS index path: {INDEX_PATH}")
-
-# ==========================================================
-#              LOAD ENVIRONMENT VARIABLES (.env)
-# ==========================================================
-load_dotenv()
-
-PG_CONN = psycopg2.connect(
-    dbname=os.environ["PG_NAME"],
-    user=os.environ["PG_USER"],
-    password=os.environ["PG_PASSWORD"],
-    host=os.environ["PG_HOST"],
-    port=os.environ.get("PG_PORT", 5432)
-)
-cursor = PG_CONN.cursor(cursor_factory=RealDictCursor)
-print("[✔] Connected to PostgreSQL")
-
-# ==========================================================
-#              INITIALIZE HYBRID SEARCH
-# ==========================================================
-from engine.indexer import FaissIndex
+from engine.config import create_pg_connection, ensure_env_loaded, resolve_index_path
 from engine.embedder import Embedder
 from engine.hybrid_search import HybridSearch
-
-# Load FAISS index
-faiss_index = FaissIndex.load(INDEX_PATH)
-
-# Create embedder
-embedder = Embedder()
-
-# Create hybrid engine
-hybrid = HybridSearch(faiss_index, PG_CONN, embedder)
+from engine.indexer import FaissIndex
 
 
-# ==========================================================
-#              DISPLAY HYBRID RESULTS
-# ==========================================================
-def display_hybrid_results(results):
+def display_hybrid_results(results: Iterable[dict]) -> None:
     print("\n==================== HYBRID RESULTS ====================\n")
 
     for i, r in enumerate(results, start=1):
@@ -61,22 +20,43 @@ def display_hybrid_results(results):
         print(f"Hybrid Score:   {r['hybrid']:.4f}")
         print(f"Semantic Score: {r['semantic']:.4f}")
         print(f"BM25 Score:     {r['bm25']:.4f}")
+        if r.get("summary"):
+            print(f"Summary:        {r['summary']}")
+        if r.get("profile_name"):
+            print(f"Reviewer:       {r['profile_name']}")
+        if r.get("text"):
+            text_preview = r['text'][:240] + ("…" if len(r['text']) > 240 else "")
+            print(f"Text:           {text_preview}")
         print("--------------------------------------------------")
 
     print("\n=========================================================\n")
 
-# ==========================================================
-#                   MAIN LOOP
-# ==========================================================
+
+def initialize_components() -> tuple[HybridSearch, connection]:
+    ensure_env_loaded()
+    index_path = resolve_index_path()
+    faiss_index = FaissIndex.load(index_path)
+    embedder = Embedder()
+
+    conn = create_pg_connection()
+    return HybridSearch(faiss_index, conn, embedder), conn
+
+
 if __name__ == "__main__":
-    print("\nHybrid Search Engine Ready! (v0.2.0)")
-    print("Type your query or 'exit' to quit.\n")
+    hybrid, conn = initialize_components()
 
-    while True:
-        query = input("\n🔍 Enter search query: ").strip()
-        if query.lower() == "exit":
-            print("\nGoodbye!")
-            break
+    try:
+        print("\nHybrid Search Engine Ready! (v0.2.0)")
+        print("Type your query or 'exit' to quit.\n")
 
-        results = hybrid.search(query, k=5)
-        display_hybrid_results(results)
+        while True:
+            query = input("\n🔍 Enter search query: ").strip()
+            if query.lower() == "exit":
+                print("\nGoodbye!")
+                break
+
+            results = hybrid.search(query, k=5)
+            display_hybrid_results(results)
+    finally:
+        conn.close()
+        print("[✔] PostgreSQL connection closed")

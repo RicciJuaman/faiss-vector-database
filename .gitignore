@@ -1,3 +1,8 @@
 .env
 *.env
 src/index/reviews.index
+__pycache__/
+*.pyc
+node_modules/
+frontend/node_modules/
+frontend/build/
