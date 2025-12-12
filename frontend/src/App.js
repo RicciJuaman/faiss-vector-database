@@ -1,69 +1,67 @@
-import { useState } from 'react';
-import './App.css';
+import { useState } from "react";
+import "./App.css";
 
-const API_BASE_URL = process.env.REACT_APP_API_BASE_URL || 'http://localhost:8000';
+const API_BASE_URL =
+  process.env.REACT_APP_API_BASE_URL || "http://localhost:8000";
 
 function normalizeResults(rawResults) {
-  const list = Array.isArray(rawResults) ? rawResults : rawResults?.results || [];
+  const list = Array.isArray(rawResults)
+    ? rawResults
+    : rawResults?.results || [];
 
-  return list.slice(0, 5).map((item, index) => {
-    const text =
+  return list.slice(0, 5).map((item, index) => ({
+    id: item.id ?? `result-${index + 1}`,
+    hybrid: item.hybrid ?? null,
+    semantic: item.semantic ?? null,
+    bm25: item.bm25 ?? null,
+    text:
       item.text ||
       item.content ||
-      item.document ||
-      item.body ||
       item.review_text ||
-      'No content available.';
-
-    return {
-      id: item.id ?? item.doc_id ?? item.document_id ?? `result-${index + 1}`,
-      hybrid: item.hybrid ?? item.score ?? null,
-      semantic: item.semantic ?? item.semantic_score ?? null,
-      bm25: item.bm25 ?? item.bm25_score ?? null,
-      text,
-    };
-  });
+      "No content available.",
+  }));
 }
 
 function formatScore(score) {
   if (score === null || score === undefined || Number.isNaN(score)) {
-    return '–';
+    return "–";
   }
   return Number(score).toFixed(4);
 }
 
 function App() {
-  const [query, setQuery] = useState('');
+  const [query, setQuery] = useState("");
   const [results, setResults] = useState([]);
   const [loading, setLoading] = useState(false);
-  const [error, setError] = useState('');
+  const [error, setError] = useState("");
 
-  const handleSearch = async (event) => {
-    event.preventDefault();
+  const handleSearch = async (e) => {
+    e.preventDefault();
     const trimmed = query.trim();
+
     if (!trimmed) {
-      setError('Enter a query to search.');
+      setError("Enter a query to search.");
       return;
     }
 
     setLoading(true);
-    setError('');
+    setError("");
 
     try {
       const response = await fetch(`${API_BASE_URL}/search/hybrid`, {
-        method: 'POST',
-        headers: { 'Content-Type': 'application/json' },
+        method: "POST",
+        headers: { "Content-Type": "application/json" },
         body: JSON.stringify({ query: trimmed, k: 5 }),
       });
 
       if (!response.ok) {
-        throw new Error(`Search request failed with status ${response.status}`);
+        throw new Error(`Request failed (${response.status})`);
       }
 
       const data = await response.json();
       setResults(normalizeResults(data));
     } catch (err) {
-      setError(err.message || 'Unable to complete search.');
+      setError(err.message || "Search failed.");
       setResults([]);
     } finally {
       setLoading(false);
@@ -73,74 +71,65 @@ function App() {
   return (
     <div className="app-shell">
       <header className="hero">
-        <p className="eyebrow">Hybrid Search Engine by Ricci</p>
-        <h1>Find the best matches with BM25 + semantic scores</h1>
+        <p className="eyebrow">Hybrid Search Engine by Ricci J.</p>
+        <h1>Semantic + BM25 Hybrid Search</h1>
         <p className="lede">
-          Run a hybrid query and review the top 5 results with both lexical and semantic relevance metrics.
+          Combining lexical relevance and vector similarity for better ranking.
         </p>
       </header>
 
       <main className="content">
         <section className="search-panel">
           <form className="search-form" onSubmit={handleSearch}>
-            <label className="visually-hidden" htmlFor="query-input">
-              Search query
-            </label>
             <input
-              id="query-input"
               type="text"
-              placeholder="Search for reviews, products, or topics..."
+              placeholder="Search…"
               value={query}
               onChange={(e) => setQuery(e.target.value)}
               disabled={loading}
             />
             <button type="submit" disabled={loading}>
-              {loading ? 'Searching…' : 'Search'}
+              {loading ? "Searching…" : "Search"}
             </button>
           </form>
           {error && <p className="error">{error}</p>}
         </section>
 
         <section className="results-panel">
-          <div className="results-header">
-            <div>
-              <p className="eyebrow">Top results</p>
-              <h2>Hybrid ranking (Top 5)</h2>
-            </div>
-            <div className="score-key">
-              <span className="tag">Hybrid</span>
-              <span className="tag">Semantic</span>
-              <span className="tag">BM25</span>
-            </div>
-          </div>
-
           {results.length === 0 && !loading && !error && (
-            <div className="empty-state">
-              <p>Submit a search to see ranked results.</p>
-            </div>
+            <p className="empty-state">
+              Submit a query to see ranked results.
+            </p>
           )}
 
           <ol className="results-list">
-            {results.map((result, index) => (
-              <li key={result.id} className="result-card">
+            {results.map((r, i) => (
+              <li key={r.id} className="result-card">
                 <div className="result-meta">
-                  <span className="rank">#{index + 1}</span>
+                  <span className="rank">#{i + 1}</span>
                   <div className="scores">
                     <div>
                       <p className="score-label">Hybrid</p>
-                      <p className="score-value">{formatScore(result.hybrid)}</p>
+                      <p className="score-value">
+                        {formatScore(r.hybrid)}
+                      </p>
                     </div>
                     <div>
                       <p className="score-label">Semantic</p>
-                      <p className="score-value">{formatScore(result.semantic)}</p>
+                      <p className="score-value">
+                        {formatScore(r.semantic)}
+                      </p>
                     </div>
                     <div>
                       <p className="score-label">BM25</p>
-                      <p className="score-value">{formatScore(result.bm25)}</p>
+                      <p className="score-value">
+                        {formatScore(r.bm25)}
+                      </p>
                     </div>
                   </div>
                 </div>
-                <p className="result-text">{result.text}</p>
+
+                <p className="result-text">{r.text}</p>
               </li>
             ))}
           </ol>

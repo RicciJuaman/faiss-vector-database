@@ -43,7 +43,7 @@ def create_pg_connection():
 # Initialize engine ONCE (important)
 # --------------------------------------------------
 BASE_DIR = Path(__file__).resolve().parent
-INDEX_PATH = (BASE_DIR.parent / "index" / "reviews.index").resolve()
+INDEX_PATH = BASE_DIR / "index" / "reviews.index"
 
 faiss_index = FaissIndex.load(INDEX_PATH)
 embedder = Embedder()
@@ -64,7 +64,7 @@ class SearchRequest(BaseModel):
 def health():
     return {"status": "ok"}
 
-@app.post("/search")
+@app.post("/search/hybrid")
 def search(req: SearchRequest):
     results = hybrid.search(req.query, k=req.k)
 
@@ -79,3 +79,4 @@ def search(req: SearchRequest):
         })
 
     return {"results": clean}
+

@@ -1,6 +1,16 @@
-"""Hybrid BM25 + semantic search implementation."""
-from typing import Dict, Iterable, List
+"""
+Hybrid BM25 + Semantic Search Engine
 
+Pipeline:
+1. BM25 search via PostgreSQL
+2. Semantic search via FAISS
+3. Score normalization
+4. Hybrid scoring
+5. Top-K ranking
+6. Payload hydration (fetch document text)
+"""
+
+from typing import Dict, Iterable, List, Tuple
 import numpy as np
 from psycopg2.extras import RealDictCursor
 
@@ -9,10 +19,10 @@ class HybridSearch:
     def __init__(self, index, conn, embedder, debug: bool = False):
         """
         Args:
-            index: FAISS IndexIDMap (returns real DB IDs).
-            conn: PostgreSQL connection.
-            embedder: Embedding model wrapper.
-            debug: When True, logs raw score vectors.
+            index: FAISS IndexIDMap (returns DB document IDs)
+            conn: psycopg2 PostgreSQL connection
+            embedder: embedding model wrapper
+            debug: enable verbose logging
         """
         self.index = index
         self.conn = conn
@@ -21,18 +31,23 @@ class HybridSearch:
 
         print("[✔] HybridSearch initialized with FAISS IndexIDMap")
 
-    # ---------------------------------------------
-    # BM25 SEARCH (PostgreSQL)
-    # ---------------------------------------------
-    def bm25_search(self, query: str, k: int = 20) -> List[Dict]:
+    # ==========================================================
+    # BM25 SEARCH (PostgreSQL Full-Text Search)
+    # ==========================================================
+    def bm25_search(self, query: str, k: int = 500) -> Dict[int, float]:
+        """
+        Returns:
+            { doc_id: bm25_score }
+        """
         with self.conn.cursor(cursor_factory=RealDictCursor) as cur:
             cur.execute(
                 """
-                SELECT "Id",
-                       ts_rank_cd(
-                         to_tsvector('english', "Text"),
-                         plainto_tsquery('english', %s)
-                       ) AS bm25
+                SELECT
+                    "Id",
+                    ts_rank_cd(
+                        to_tsvector('english', "Text"),
+                        plainto_tsquery('english', %s)
+                    ) AS bm25
                 FROM reviews
                 WHERE to_tsvector('english', "Text") @@ plainto_tsquery('english', %s)
                 ORDER BY bm25 DESC
@@ -41,76 +56,130 @@ class HybridSearch:
                 (query, query, k),
             )
 
-            return cur.fetchall()
+            rows = cur.fetchall()
 
-    # ---------------------------------------------
+        return {int(row["Id"]): float(row["bm25"]) for row in rows}
+
+    # ==========================================================
     # SEMANTIC SEARCH (FAISS)
-    # ---------------------------------------------
-    def semantic_search(self, query: str, k: int = 20) -> List:
-        vec = self.embedder.embed_batch([query])
+    # ==========================================================
+    def semantic_search(self, query: str, k: int = 50) -> Dict[int, float]:
+        """
+        Returns:
+            { doc_id: semantic_score }
+        """
+        vector = self.embedder.embed_batch([query])
+        distances, ids = self.index.search(vector, k)
 
-        distances, ids = self.index.search(vec, k)
+        results: Dict[int, float] = {}
 
-        results = []
-        for dist, db_id in zip(distances[0], ids[0]):
-            if db_id == -1:
+        for dist, doc_id in zip(distances[0], ids[0]):
+            if doc_id == -1:
                 continue
 
-            semantic_score = 1 - float(dist)
-            results.append((int(db_id), semantic_score))
+            # Convert L2 distance → similarity
+            semantic_score = 1.0 - float(dist)
+            results[int(doc_id)] = semantic_score
 
         return results
 
-    # ---------------------------------------------
-    # NORMALIZATION
-    # ---------------------------------------------
-    def normalize(self, arr: Iterable[float]) -> np.ndarray:
-        arr = np.array(list(arr), dtype=float)
-        if arr.size == 0:
+    # ==========================================================
+    # SCORE NORMALIZATION (MIN-MAX)
+    # ==========================================================
+    def normalize(self, values: Iterable[float]) -> np.ndarray:
+        values = np.array(list(values), dtype=float)
+
+        if values.size == 0:
             return np.array([], dtype=float)
-        if arr.max() == arr.min():
-            return np.ones_like(arr, dtype=float)
-        return (arr - arr.min()) / (arr.max() - arr.min())
 
-    # ---------------------------------------------
-    # HYBRID SEARCH
-    # ---------------------------------------------
-    def search(self, query: str, k: int = 10, alpha: float = 0.7) -> List[Dict]:
+        min_v, max_v = values.min(), values.max()
+
+        if min_v == max_v:
+            return np.ones_like(values)
+
+        return (values - min_v) / (max_v - min_v)
+
+    # ==========================================================
+    # HYBRID SEARCH (MAIN ENTRY)
+    # ==========================================================
+    def search(
+        self,
+        query: str,
+        k: int = 5,
+        alpha: float = 0.7,
+    ) -> List[Dict]:
         """
-        alpha = weight for semantic search
-        (1 - alpha) = weight for BM25
+        alpha:
+            weight for semantic score
+            (1 - alpha) is BM25 weight
         """
 
-        # Retrieve results
-        bm25_docs = self.bm25_search(query, k=500)
-        sem_docs = self.semantic_search(query, k=50)
+        # ----------------------------
+        # Retrieve candidate scores
+        # ----------------------------
+        bm25_scores = self.bm25_search(query)
+        semantic_scores = self.semantic_search(query)
 
-        # Convert lists → fast lookup maps
-        bm25_map = {int(row["Id"]): float(row["bm25"]) for row in bm25_docs}
-        sem_map = {doc_id: score for (doc_id, score) in sem_docs}
+        all_doc_ids = set(bm25_scores.keys()) | set(semantic_scores.keys())
 
-        # Union of all doc IDs
-        all_ids = set(bm25_map.keys()) | set(sem_map.keys())
+        if not all_doc_ids:
+            return []
 
-        combined = []
-        for doc_id in all_ids:
-            bm25 = bm25_map.get(doc_id, 0.0)
-            semantic = sem_map.get(doc_id, 0.0)
-            combined.append({"id": doc_id, "bm25": bm25, "semantic": semantic})
+        # ----------------------------
+        # Merge raw scores
+        # ----------------------------
+        merged = []
+        for doc_id in all_doc_ids:
+            merged.append({
+                "id": doc_id,
+                "bm25": bm25_scores.get(doc_id, 0.0),
+                "semantic": semantic_scores.get(doc_id, 0.0),
+            })
 
         if self.debug:
-            print("\nRAW BM25 scores:", [c["bm25"] for c in combined])
-            print("RAW Semantic scores:", [c["semantic"] for c in combined])
+            print("RAW BM25:", [m["bm25"] for m in merged])
+            print("RAW SEM :", [m["semantic"] for m in merged])
 
-        # Normalize both score sets
-        bm25_norm = self.normalize([c["bm25"] for c in combined])
-        sem_norm = self.normalize([c["semantic"] for c in combined])
+        # ----------------------------
+        # Normalize scores
+        # ----------------------------
+        bm25_norm = self.normalize(m["bm25"] for m in merged)
+        sem_norm = self.normalize(m["semantic"] for m in merged)
 
-        # Apply weights + hybrid scoring
-        for i, c in enumerate(combined):
-            c["hybrid"] = alpha * sem_norm[i] + (1 - alpha) * bm25_norm[i]
+        # ----------------------------
+        # Hybrid scoring
+        # ----------------------------
+        for i, doc in enumerate(merged):
+            doc["hybrid"] = (
+                alpha * sem_norm[i]
+                + (1.0 - alpha) * bm25_norm[i]
+            )
 
-        # Sort results
-        combined.sort(key=lambda x: x["hybrid"], reverse=True)
+        # ----------------------------
+        # Rank + select top-K
+        # ----------------------------
+        merged.sort(key=lambda x: x["hybrid"], reverse=True)
+        top_results = merged[:k]
 
-        return combined[:k]
+        # ----------------------------
+        # Hydrate with document text
+        # ----------------------------
+        ids = [r["id"] for r in top_results]
+
+        with self.conn.cursor(cursor_factory=RealDictCursor) as cur:
+            cur.execute(
+                """
+                SELECT "Id", "Text"
+                FROM reviews
+                WHERE "Id" = ANY(%s);
+                """,
+                (ids,),
+            )
+            rows = cur.fetchall()
+
+        text_map = {int(row["Id"]): row["Text"] for row in rows}
+
+        for r in top_results:
+            r["text"] = text_map.get(r["id"])
+
+        return top_results
