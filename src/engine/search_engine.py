@@ -1,52 +1,52 @@
+"""CLI wrapper around the hybrid search engine."""
+from __future__ import annotations
+
 import os
+from pathlib import Path
+
 import psycopg2
-from psycopg2.extras import RealDictCursor
 from dotenv import load_dotenv
+from psycopg2.extras import RealDictCursor
 
-# === Load helper modules ===
-from engine.hybrid_search import HybridSearch
 from engine.embedder import Embedder
+from engine.hybrid_search import HybridSearch
 from engine.indexer import FaissIndex
-
-import numpy as np
 
 # ==========================================================
 #      PATH RESOLUTION FOR INDEX LOCATION
 # ==========================================================
-BASE_DIR = os.path.dirname(os.path.abspath(__file__))
-INDEX_PATH = os.path.abspath(os.path.join(BASE_DIR, "..", "index", "reviews.index"))
+BASE_DIR = Path(__file__).resolve().parent
+INDEX_PATH = (BASE_DIR.parent / "index" / "reviews.index").resolve()
 print(f"[✔] Resolved FAISS index path: {INDEX_PATH}")
+
 
 # ==========================================================
 #              LOAD ENVIRONMENT VARIABLES (.env)
 # ==========================================================
-load_dotenv()
+def create_pg_connection():
+    load_dotenv()
+    required = ["PG_NAME", "PG_USER", "PG_PASSWORD", "PG_HOST"]
+    missing = [key for key in required if key not in os.environ]
+    if missing:
+        raise EnvironmentError(f"Missing required environment variables: {', '.join(missing)}")
 
-PG_CONN = psycopg2.connect(
-    dbname=os.environ["PG_NAME"],
-    user=os.environ["PG_USER"],
-    password=os.environ["PG_PASSWORD"],
-    host=os.environ["PG_HOST"],
-    port=os.environ.get("PG_PORT", 5432)
-)
-cursor = PG_CONN.cursor(cursor_factory=RealDictCursor)
-print("[✔] Connected to PostgreSQL")
+    conn = psycopg2.connect(
+        dbname=os.environ["PG_NAME"],
+        user=os.environ["PG_USER"],
+        password=os.environ["PG_PASSWORD"],
+        host=os.environ["PG_HOST"],
+        port=os.environ.get("PG_PORT", 5432),
+    )
+    conn.cursor(cursor_factory=RealDictCursor)  # validate connection + cursor factory
+    print("[✔] Connected to PostgreSQL")
+    return conn
+
 
 # ==========================================================
 #              INITIALIZE HYBRID SEARCH
 # ==========================================================
-from engine.indexer import FaissIndex
-from engine.embedder import Embedder
-from engine.hybrid_search import HybridSearch
-
-# Load FAISS index
 faiss_index = FaissIndex.load(INDEX_PATH)
-
-# Create embedder
 embedder = Embedder()
-
-# Create hybrid engine
-hybrid = HybridSearch(faiss_index, PG_CONN, embedder)
 
 
 # ==========================================================
@@ -65,18 +65,22 @@ def display_hybrid_results(results):
 
     print("\n=========================================================\n")
 
+
 # ==========================================================
 #                   MAIN LOOP
 # ==========================================================
 if __name__ == "__main__":
-    print("\nHybrid Search Engine Ready! (v0.2.0)")
-    print("Type your query or 'exit' to quit.\n")
+    with create_pg_connection() as conn:
+        hybrid = HybridSearch(faiss_index, conn, embedder)
 
-    while True:
-        query = input("\n🔍 Enter search query: ").strip()
-        if query.lower() == "exit":
-            print("\nGoodbye!")
-            break
+        print("\nHybrid Search Engine Ready! (v0.2.0)")
+        print("Type your query or 'exit' to quit.\n")
 
-        results = hybrid.search(query, k=5)
-        display_hybrid_results(results)
+        while True:
+            query = input("\n🔍 Enter search query: ").strip()
+            if query.lower() == "exit":
+                print("\nGoodbye!")
+                break
+
+            results = hybrid.search(query, k=5)
+            display_hybrid_results(results)
