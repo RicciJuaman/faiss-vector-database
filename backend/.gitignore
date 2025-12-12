@@ -1,3 +1,5 @@
 .env
 *.env
 src/index/reviews.index
+__pycache__/
+*.pyc
