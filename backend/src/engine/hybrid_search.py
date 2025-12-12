@@ -169,7 +169,7 @@ class HybridSearch:
         with self.conn.cursor(cursor_factory=RealDictCursor) as cur:
             cur.execute(
                 """
-                SELECT "Id", "Text"
+                SELECT "Id", "ProfileName", "Summary", "Text"
                 FROM reviews
                 WHERE "Id" = ANY(%s);
                 """,
@@ -177,9 +177,17 @@ class HybridSearch:
             )
             rows = cur.fetchall()
 
-        text_map = {int(row["Id"]): row["Text"] for row in rows}
+        text_map = {
+            int(row["Id"]): {
+                "profile_name": row.get("ProfileName"),
+                "summary": row.get("Summary"),
+                "review_text": row.get("Text"),
+            }
+            for row in rows
+        }
 
         for r in top_results:
-            r["text"] = text_map.get(r["id"])
+            metadata = text_map.get(r["id"], {})
+            r.update(metadata)
 
         return top_results

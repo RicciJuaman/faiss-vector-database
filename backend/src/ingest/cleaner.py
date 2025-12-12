@@ -3,6 +3,7 @@ from argparse import ArgumentParser, Namespace
 from pathlib import Path
 
 INVALID_BYTES = bytes([0x81, 0x8D, 0x8F, 0x90, 0x9D])
+TRANSLATION_TABLE = bytes.maketrans(b"", b"")
 
 
 def clean_file(input_path: Path, output_path: Path) -> None:
@@ -16,7 +17,7 @@ def clean_file(input_path: Path, output_path: Path) -> None:
 
     with input_path.open("rb") as src, output_path.open("wb") as dst:
         for line in src:
-            clean_line = line.translate(None, INVALID_BYTES)
+            clean_line = line.translate(TRANSLATION_TABLE, INVALID_BYTES)
             dst.write(clean_line)
 
 
