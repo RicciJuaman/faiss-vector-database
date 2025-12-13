@@ -25,7 +25,6 @@ BASE_DIR = Path(__file__).resolve().parent
 INDEX_DIR = BASE_DIR.parent / "index"
 INDEX_PATH = INDEX_DIR / "reviews.index"
 
-
 # ----------------------
 # ENV + DB
 # ----------------------
@@ -34,7 +33,9 @@ def load_env() -> None:
     required = ["PG_NAME", "PG_USER", "PG_PASSWORD", "PG_HOST"]
     missing = [key for key in required if key not in os.environ]
     if missing:
-        raise EnvironmentError(f"Missing required environment variables: {', '.join(missing)}")
+        raise EnvironmentError(
+            f"Missing required environment variables: {', '.join(missing)}"
+        )
 
 
 def create_pg_connection() -> connection:
@@ -46,43 +47,58 @@ def create_pg_connection() -> connection:
         port=os.environ.get("PG_PORT", 5432),
     )
 
-
 # ----------------------
 # EMBEDDING
 # ----------------------
 def embed_batch(embedder: Embedder, text_list: Iterable[str]) -> np.ndarray:
     return embedder.embed_batch(text_list)
 
+# ----------------------
+# FAISS INDEX HELPERS
+# ----------------------
+class FaissIndex:
+    @staticmethod
+    def load(path: Path) -> faiss.IndexIDMap:
+        if not path.exists():
+            raise FileNotFoundError(f"FAISS index not found at: {path}")
+
+        index = faiss.read_index(str(path))
+
+        if not isinstance(index, faiss.IndexIDMap):
+            index = faiss.IndexIDMap(index)
+
+        return index
+
+    @staticmethod
+    def save(index: faiss.Index, path: Path) -> None:
+        path.parent.mkdir(parents=True, exist_ok=True)
+        faiss.write_index(index, str(path))
 
 # ----------------------
 # LOAD OR CREATE INDEX
 # ----------------------
 def load_or_init_index(dim: int, index_path: Path) -> faiss.IndexIDMap:
-    """Load an existing FAISS index or create a new IndexIDMap."""
     if index_path.exists():
         print("[✔] Loaded existing FAISS index")
-        index = faiss.read_index(str(index_path))
-
-        # If index is NOT an IndexIDMap, wrap it
-        if not isinstance(index, faiss.IndexIDMap):
-            print("[+] Wrapping existing index inside IndexIDMap")
-            index = faiss.IndexIDMap(index)
-
-        return index
+        return FaissIndex.load(index_path)
 
     print("[+] Creating new FAISS IndexIDMap index")
     base = faiss.IndexFlatL2(dim)
     return faiss.IndexIDMap(base)
 
-
 # ----------------------
 # MAIN INGEST
 # ----------------------
-def embed_all(conn: connection, embedder: Embedder, batch_size: int = BATCH_SIZE) -> None:
+def embed_all(
+    conn: connection,
+    embedder: Embedder,
+    batch_size: int = BATCH_SIZE,
+) -> None:
     print("[…] Counting rows...")
     with conn.cursor(cursor_factory=RealDictCursor) as cursor:
         cursor.execute("SELECT COUNT(*) FROM reviews;")
         total_rows = cursor.fetchone()["count"]
+
     print(f"Total rows: {total_rows}")
 
     print("[…] Testing embedding dimension…")
@@ -92,7 +108,7 @@ def embed_all(conn: connection, embedder: Embedder, batch_size: int = BATCH_SIZE
     INDEX_DIR.mkdir(parents=True, exist_ok=True)
     index = load_or_init_index(dim, INDEX_PATH)
 
-    processed = index.ntotal  # continue from previous state if exists
+    processed = index.ntotal
     print(f"Starting from vector position {processed}")
 
     while True:
@@ -111,7 +127,7 @@ def embed_all(conn: connection, embedder: Embedder, batch_size: int = BATCH_SIZE
         if not rows:
             break
 
-        texts = [row["Text"] if row["Text"] else "" for row in rows]
+        texts = [row["Text"] or "" for row in rows]
         vectors = embed_batch(embedder, texts)
 
         ids = np.array([row["Id"] for row in rows], dtype="int64")
@@ -126,17 +142,20 @@ def embed_all(conn: connection, embedder: Embedder, batch_size: int = BATCH_SIZE
         print(f"[+] Embedded + indexed: {processed}/{total_rows}")
 
     FaissIndex.save(index, INDEX_PATH)
-
     print("[✔] FINAL SAVE COMPLETE")
     print("[✔] Indexing COMPLETE — FAISS now contains DB IDs internally.")
-
 
 # ----------------------
 # CLI
 # ----------------------
 def parse_args() -> Namespace:
     parser = ArgumentParser(description="Embed and index review data into FAISS.")
-    parser.add_argument("--batch-size", type=int, default=BATCH_SIZE, help="Number of rows to embed per batch")
+    parser.add_argument(
+        "--batch-size",
+        type=int,
+        default=BATCH_SIZE,
+        help="Number of rows to embed per batch",
+    )
     return parser.parse_args()
 
 
@@ -144,21 +163,6 @@ if __name__ == "__main__":
     args = parse_args()
     load_env()
     embedder = Embedder()
+
     with create_pg_connection() as conn:
         embed_all(conn, embedder, batch_size=args.batch_size)
-
-
-# ----------------------
-# FAISS Index Loader Class
-# ----------------------
-class FaissIndex:
-    @staticmethod
-    def load(path: Path) -> faiss.Index:
-        if not path.exists():
-            raise FileNotFoundError(f"FAISS index not found at: {path}")
-        return faiss.read_index(str(path))
-
-    @staticmethod
-    def save(index: faiss.Index, path: Path) -> None:
-        path.parent.mkdir(parents=True, exist_ok=True)
-        faiss.write_index(index, str(path))
