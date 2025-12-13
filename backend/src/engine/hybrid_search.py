@@ -42,18 +42,24 @@ class HybridSearch:
         with self.conn.cursor(cursor_factory=RealDictCursor) as cur:
             cur.execute(
                 """
+                WITH query AS (
+                    SELECT websearch_to_tsquery('english', %s) AS q
+                )
                 SELECT
-                    "Id",
+                    r."Id",
                     ts_rank_cd(
-                        to_tsvector('english', "Text"),
-                        plainto_tsquery('english', %s)
+                        setweight(to_tsvector('english', COALESCE(r."Summary", '')), 'B') ||
+                        setweight(to_tsvector('english', COALESCE(r."Text", '')), 'D'),
+                        q,
+                        32
                     ) AS bm25
-                FROM reviews
-                WHERE to_tsvector('english', "Text") @@ plainto_tsquery('english', %s)
+                FROM reviews r, query
+                WHERE q <> ''::tsquery
+                  AND to_tsvector('english', COALESCE(r."Summary", '') || ' ' || COALESCE(r."Text", '')) @@ q
                 ORDER BY bm25 DESC
                 LIMIT %s;
                 """,
-                (query, query, k),
+                (query, k),
             )
 
             rows = cur.fetchall()
