@@ -27,6 +27,8 @@ This system:
 
 This architecture mirrors how modern AI systems perform **RAG (Retrieval-Augmented Generation)** and semantic search at scale.
 
+![1765322161039](https://github.com/user-attachments/assets/fc7b3fee-c240-46aa-a8c4-b06f662d21ef)
+
 ---
 
 ## Why Build a Vector Database Yourself?
@@ -52,6 +54,8 @@ By building this manually, you gain hands-on mastery of the same components used
 - Every modern RAG pipeline  
 
 This is practical AI infrastructure engineering.
+
+![1765534430713](https://github.com/user-attachments/assets/c1f1c06c-7a30-4499-8293-f3d39040eb83)
 
 ---
 ## 🙌 Author
